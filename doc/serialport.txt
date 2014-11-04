@@ -1,0 +1,885 @@
+较完整的串口类（WINAPI/C++/源码）,解决10以上端口，合理结束线程等问题
+
+
+        串口在工业应用是极为普遍的，我用API封装了同步和异步的串口类，以及一个具有监视线程的异步串口类；使用简单高效，具有工业强度，我在BC, BCB, VC, BCBX, GCC下编译通过，相信足够应付大多数情况，而且还可以继承扩展，下面简单介绍使用方法, 后附源代码(_com.h);
+
+        库的层次结构：
+
+   _base_com：虚基类，基本接口，可自行扩展自己的串口类
+   _sync_com：_base_com 的子类， 同步应用，适合简单应用
+   _asyn_com：_base_com 的子类， 异步应用（重叠I/O），适合较高效应用，NT平台
+   _thread_com：_asyn_com 的子类， 异步应用，监视线程，适合较复杂应用，窗口通知消息和继承扩展的使用方式；
+
+   几个问题：
+
+     结束线程
+
+    如何从WaitCommEvent(pcom->_com_handle, &mask, &pcom->_wait_o)这个API退出以便顺利结束线程：
+    方案1：
+     SetCommMask(_com_handle, 0);    这个方法在MSDN有载，当在一些情况下并不完全有效，原因未知；
+    方案2： 
+     SetEvent(_wait_o.hEvent);    直接激活重叠IO结构中的事件句柄，绝对有效；  这份代码我两种都用；
+
+    打开10以上的COM端口
+
+   在NT/2000下打开编号10以上端口用
+    _com_handle = CreateFile(
+   “COM10“,
+   GENERIC_READ | GENERIC_WRITE,
+   0,
+   NULL,
+   OPEN_EXISTING,
+   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, //重叠I/O
+   NULL
+   );
+
+将提示错误， 这样就OK：
+
+_com_handle = CreateFile(
+   “////.//COM10“,//对应的就是//./COM10
+   GENERIC_READ | GENERIC_WRITE,
+   0,
+   NULL,
+   OPEN_EXISTING,
+   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, //重叠I/O
+   NULL
+   );
+
+    线程中循环的低效率问题
+
+    使用SetCommMask(pcom->_com_handle, EV_RXCHAR | EV_ERR)监视接受字符和错误消息；一旦有个字符来就会激活WaitCommEvent 通常作以下接受操作：
+
+if(!WaitCommEvent(pcom->_com_handle, &mask, &pcom->_wait_o))
+   {
+    if(GetLastError() == ERROR_IO_PENDING)
+    {
+     GetOverlappedResult(pcom->_com_handle, &pcom->_wait_o, &length, true);
+    }
+   }
+
+   if(mask & EV_ERR) // == EV_ERR
+    ClearCommError(pcom->_com_handle, &error, &stat);
+
+   if(mask & EV_RXCHAR) // == EV_RXCHAR
+   {
+        pcom->on_receive();//接收到字符
+        //或发送到窗口消息
+   }
+
+这样频繁的函数调用或接受发送消息，效率低下，我添加扫描缓冲区的代码，当字符数超过设定的字符数才作接受字符的操作；
+
+if(mask & EV_RXCHAR) // == EV_RXCHAR
+   {
+    ClearCommError(pcom->_com_handle, &error, &stat);
+    if(stat.cbInQue > pcom->_notify_num) //_notify_num 是设定得字符数
+     pcom->on_receive();
+   }
+
+    类似于流的输出方式
+
+我编了一个简单的写串口的方式，可以类似于流将简单的数据类型输出
+
+template<typename T>
+ _asyn_com& operator << (T x)
+ {
+  strstream s;
+
+  s << x ;
+  write(s.str(), s.pcount());
+
+  return *this;
+ }
+
+就可以这样使用
+
+_sync_com com1;
+com1.open(1, 9600);
+com1  << “ then random() 's return value is “<< rand()  << “ ./n“ ;
+com1.close();
+
+本串口类库的主要接口
+
+class _base_com
+{
+   bool open(int port);
+   bool open(int port, int baud_rate);
+   bool open(int port, char * set_str); // set_str : “9600, 8, n, 1“
+   bool set_state(int BaudRate, int ByteSize = 8, int Parity = NOPARITY, int StopBits = ONESTOPBIT)
+   //设置内置结构串口参数：波特率，停止位 
+   bool set_state(char *set_str)
+   bool is_open();
+   HANDLE get_handle();
+   virtual bool open_port()=0; //继承用的重要函数
+   virtual close();
+}
+
+class _sync_com ：public _base_com //同步
+{
+    int read(char *buf, int buf_size); //自动补上'/0',将用去一个字符的缓冲区
+    int write(char *buf, int len);
+    int write(char *buf);
+}
+
+
+
+class _asyn_com  ：public _base_com //异步
+{
+    int read(char *buf, int buf_size); //自动补上'/0',将用去一个字符的缓冲区
+    int write(char *buf, int len);
+    int write(char *buf);
+}
+
+class _thread_com  ：public _asyn_com  //线程
+{
+    virtual void on_receive() //供线程接受到字符时调用， 可继承替换之
+    {
+       if(_notify_hwnd)
+            PostMessage(_notify_hwnd, ON_COM_RECEIVE, WPARAM(_port), LPARAM(0));
+       else
+       {
+           if(_func)
+              _func(_port);
+       }
+    }
+    void set_hwnd(HWND hwnd); //设置窗口句柄， 发送 ON_COM_RECEIVE WM_USER + 618
+    void set_func(void (*f)(int)); //设置调用函数 ，窗口句柄优先
+   void set_notify_num(int num); //设定发送通知, 接受字符最小值
+}
+
+一些应用范例 
+
+   当然首先 #include "_com.h"
+
+    一、打开串口1同步写
+
+  char str[] = "com_class test";
+ _sync_com com1;  //同步
+ com1.open(1);  // 相当于 com1.open(1, 9600);  com1.open(1, "9600,8,n,1");
+ for(int i=0; i<100; i++)
+ {
+  Sleep(500);
+  com1.write(str);  //也可以 com1.write(str, strlen(str));
+ }
+ com1.close();
+
+    二、打开串口2异步读
+
+ char str[100];
+ _asyn_com com2; //异步
+ com2.open(2); // 相当于 com2.open(2, 9600);  com2.open(2, "9600,8,n,1");
+ if(!com2.is_open())
+  cout << "COM2 not open , error : " << GetLastError() << endl;
+ /* 
+   也可以如下用法
+  if(!com2.open(2))
+   cout << "COM2 not open , error : " << GetLastError() << endl;
+ */
+ for(int i=0; i<100; i++)
+ {
+  Sleep(500);
+  if(com2.read(str, 100) > 0) //异步读，返回读取字符数
+   cout << str; 
+ }
+ com2.close();
+
+    三、扩展应用具有监视线程的串口类
+     
+ class _com_ex : public thread_com
+ {
+ public:
+  virtual on_receive()
+  {
+   char str[100];
+   if(read(str, 100) > 0) //异步读，返回读取字符数
+     cout << str; 
+  }
+ };
+
+ int main(int argc, char *argv[])
+ {
+  try
+  {
+   char str[100];
+   _com_ex com2;  //异步扩展
+   com2.open(2); 
+   Sleep(10000);
+   com2.close();
+  }
+  catch(exception &e)
+  {
+   cout << e.what() << endl;
+  }
+  return 0;
+ }
+
+    四、桌面应用可发送消息到指定窗口（在C++ Builder 和 VC ++ 测试通过）
+  
+   VC ++  
+
+   接受消息
+  
+ BEGIN_MESSAGE_MAP(ComDlg, CDialog)
+  //{{AFX_MSG_MAP(ComDlg)
+  ON_WM_SYSCOMMAND()
+  ON_WM_PAINT()
+  ON_WM_QUERYDRAGICON()
+  ON_WM_DESTROY()
+  //}}AFX_MSG_MAP
+  ON_MESSAGE(ON_COM_RECEIVE, On_Receive)
+ END_MESSAGE_MAP()
+
+    打开串口,传递窗口句柄
+
+   _thread_com com2;
+  com2.open(2);
+  com2.set_hwnd(ComDlg->m_hWnd);
+
+   处理消息
+ 
+ LRESULT ComDlg::On_Receive(WPARAM wp, LPARAM lp)
+ {
+  char str[100];
+  com2.read(str, 100);
+
+  char com_str[10];
+  strcpy(com_str, "COM");
+  ltoa((long)wp, com_str + 3, 10); // WPARAM 保存端口号
+
+  MessageBox(str, com_str, MB_OK);
+  return 0;
+ }
+
+  C++ Builder 
+ 
+  class TForm1 : public TForm
+ {
+ __published: // IDE-managed Components
+  void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
+  void __fastcall FormCreate(TObject *Sender);
+ private: // User declarations
+ public:  // User declarations
+
+  void On_Receive(TMessage& Message);
+
+  __fastcall TForm1(TComponent* Owner);
+
+  _thread_com com2;
+
+  BEGIN_MESSAGE_MAP
+   MESSAGE_HANDLER(ON_COM_RECEIVE, TMessage, On_Receive)
+  END_MESSAGE_MAP(TForm)
+ };
+ 
+ void __fastcall TForm1::FormClose(TObject *Sender, TCloseAction &Action)
+ {
+   com2.close();
+ }
+
+ //---------------------------------------------------------------------------
+ void __fastcall TForm1::FormCreate(TObject *Sender)
+ {
+     com2.open(2);
+     com2.set_hwnd(Handle);
+ }
+
+ //---------------------------------------------------------------------------
+ void  TForm1::On_Receive(TMessage& Message)
+ {
+   char xx[20];
+   int port = Message.WParam;
+   if(com2.read(xx, 20) > 0)
+     ShowMessage(xx);
+ }
+  
+错误和缺陷在所难免，欢迎来信批评指正；wushaojian@21cn.com 
+
+附完整源代码 _com.h
+
+
+/*
+串口基础类库（WIN32） ver 0.1
+
+编译器 ： BC++ 5; C++ BUILDER 4, 5, 6, X; VC++ 5, 6; VC.NET;  GCC;
+
+class   _base_com : 虚基类 基本串口接口;
+class   _sync_com : 同步I/O 串口类;
+class   _asyn_com : 异步I/O 串口类;
+class _thread_com : 异步I/O 辅助读监视线程 可转发窗口消息 串口类(可继承虚函数on_receive用于读操作)；
+class        _com : _thread_com 同名
+
+copyright(c) 2004.8 llbird wushaojian@21cn.com
+*/
+/*
+Example :
+*/
+#ifndef _COM_H_
+#define _COM_H_
+
+#pragma warning(disable: 4530)
+#pragma warning(disable: 4786)
+#pragma warning(disable: 4800)
+
+#include <cassert>
+#include <strstream>
+#include <algorithm>
+#include <exception>
+#include <iomanip>
+using namespace std;
+
+#include <windows.h>
+
+class _base_com   //虚基类 基本串口接口
+{
+protected:
+
+ volatile int _port;  //串口号
+ volatile HANDLE _com_handle;//串口句柄
+ char _com_str[20];
+ DCB _dcb;     //波特率，停止位，等
+ COMMTIMEOUTS _co;  // 超时时间
+
+ virtual bool open_port() = 0;
+ void init() //初始化
+ {
+  memset(_com_str, 0, 20);
+  memset(&_co, 0, sizeof(_co));
+  memset(&_dcb, 0, sizeof(_dcb));
+  _dcb.DCBlength = sizeof(_dcb);
+  _com_handle = INVALID_HANDLE_VALUE;
+ }                  
+ virtual bool setup_port()
+ {
+  if(!is_open())
+   return false;
+
+  if(!SetupComm(_com_handle, 8192, 8192))
+   return false; //设置推荐缓冲区
+
+  if(!GetCommTimeouts(_com_handle, &_co))
+   return false;
+  _co.ReadIntervalTimeout = 0xFFFFFFFF;
+  _co.ReadTotalTimeoutMultiplier = 0;
+  _co.ReadTotalTimeoutConstant = 0;
+  _co.WriteTotalTimeoutMultiplier = 0;
+  _co.WriteTotalTimeoutConstant = 2000;
+  if(!SetCommTimeouts(_com_handle, &_co))
+   return false; //设置超时时间
+
+  if(!PurgeComm(_com_handle, PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR ))
+   return false; //清空串口缓冲区
+
+  return true;
+ }       
+ inline void set_com_port(int port)
+ {
+  char p[12];
+  _port = port;
+  strcpy(_com_str, "////.//COM"); 
+  ltoa(_port, p, 10);
+  strcat(_com_str, p);
+ }
+public:
+ _base_com()
+ {
+  init(); 
+ }
+ virtual ~_base_com()
+ {
+  close();      
+ }
+ //设置串口参数：波特率，停止位，等 支持设置字符串 "9600, 8, n, 1"
+ bool set_state(char *set_str) 
+ {
+  if(is_open())
+  {
+   if(!GetCommState(_com_handle, &_dcb))
+    return false;
+   if(!BuildCommDCB(set_str, &_dcb))
+    return false;
+   return SetCommState(_com_handle, &_dcb) == TRUE;
+  }
+  return false;
+ }
+ //设置内置结构串口参数：波特率，停止位
+ bool set_state(int BaudRate, int ByteSize = 8, int Parity = NOPARITY, int StopBits = ONESTOPBIT)
+ {
+  if(is_open())
+  {
+   if(!GetCommState(_com_handle, &_dcb))
+    return false;
+   _dcb.BaudRate = BaudRate;
+      _dcb.ByteSize = ByteSize;
+      _dcb.Parity   = Parity;
+   _dcb.StopBits = StopBits;
+   return SetCommState(_com_handle, &_dcb) == TRUE;
+  }
+  return false;
+ }
+ //打开串口 缺省 9600, 8, n, 1
+ inline bool open(int port)
+ {
+  return open(port, 9600);
+ }
+ //打开串口 缺省 baud_rate, 8, n, 1
+ inline bool open(int port, int baud_rate)
+ {
+  if(port < 1 || port > 1024)
+   return false;
+
+  set_com_port(port);
+
+  if(!open_port())
+   return false;
+
+  if(!setup_port())
+   return false;
+
+  return set_state(baud_rate);
+ }
+ //打开串口
+ inline bool open(int port, char *set_str)
+ {
+  if(port < 1 || port > 1024)
+   return false;
+
+  set_com_port(port);
+
+  if(!open_port())
+   return false;
+
+  if(!setup_port())
+   return false;
+
+  return set_state(set_str);
+  
+ }
+ inline bool set_buf(int in, int out)
+ {
+  return is_open() ? SetupComm(_com_handle, in, out) : false;
+ }
+ //关闭串口
+ inline virtual void close()
+ {
+  if(is_open())  
+  {
+   CloseHandle(_com_handle);
+   _com_handle = INVALID_HANDLE_VALUE;
+  }
+ }
+ //判断串口是或打开
+ inline bool is_open()
+ {
+  return _com_handle != INVALID_HANDLE_VALUE;
+ }
+ //获得串口句炳
+ HANDLE get_handle()
+ {
+  return _com_handle;
+ }
+ operator HANDLE()
+ {
+  return _com_handle;
+ }
+};
+
+class _sync_com : public _base_com
+{
+protected:
+ //打开串口
+ virtual bool open_port()
+ {
+  if(is_open())
+   close();
+
+  _com_handle = CreateFile(
+   _com_str,
+   GENERIC_READ | GENERIC_WRITE,
+   0,
+   NULL,
+   OPEN_EXISTING,
+   FILE_ATTRIBUTE_NORMAL , 
+   NULL
+   );
+  assert(is_open());
+  return is_open();//检测串口是否成功打开
+ }
+
+public:
+
+ _sync_com()
+ {
+ }
+ //同步读
+ int read(char *buf, int buf_len)
+ {
+  if(!is_open())
+   return 0;
+
+  buf[0] = '/0';
+  
+  COMSTAT  stat;
+  DWORD error;
+
+  if(ClearCommError(_com_handle, &error, &stat) && error > 0) //清除错误
+  {
+   PurgeComm(_com_handle, PURGE_RXABORT | PURGE_RXCLEAR); /*清除输入缓冲区*/
+   return 0;
+  }
+   
+  unsigned long r_len = 0;
+
+  buf_len = min(buf_len - 1, (int)stat.cbInQue);
+  if(!ReadFile(_com_handle, buf, buf_len, &r_len, NULL))
+    r_len = 0;
+  buf[r_len] = '/0';
+
+  return r_len;
+ }
+ //同步写
+ int write(char *buf, int buf_len)
+ {
+  if(!is_open() || !buf)
+   return 0;
+  
+  DWORD    error;
+  if(ClearCommError(_com_handle, &error, NULL) && error > 0) //清除错误
+   PurgeComm(_com_handle, PURGE_TXABORT | PURGE_TXCLEAR);
+
+  unsigned long w_len = 0;
+  if(!WriteFile(_com_handle, buf, buf_len, &w_len, NULL))
+   w_len = 0;
+
+  return w_len;
+ }
+ //同步写
+ inline int write(char *buf)
+ {
+  assert(buf);
+  return write(buf, strlen(buf));
+ }
+ //同步写, 支持部分类型的流输出
+ template<typename T>
+ _sync_com& operator << (T x)
+ {
+  strstream s;
+
+  s << x;
+  write(s.str(), s.pcount());
+
+  return *this;
+ }
+};
+
+class _asyn_com : public _base_com
+{
+protected:
+
+ OVERLAPPED _ro, _wo; // 重叠I/O
+
+ virtual bool open_port()
+ {
+  if(is_open())
+   close();
+
+  _com_handle = CreateFile(
+   _com_str,
+   GENERIC_READ | GENERIC_WRITE,
+   0,
+   NULL,
+   OPEN_EXISTING,
+   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, //重叠I/O
+   NULL
+   );
+  assert(is_open());
+  return is_open();//检测串口是否成功打开
+ }
+
+public:
+
+ _asyn_com()
+ {
+  memset(&_ro, 0, sizeof(_ro));
+  memset(&_wo, 0, sizeof(_wo));
+
+  _ro.hEvent = CreateEvent(NULL, true, false, NULL);
+  assert(_ro.hEvent != INVALID_HANDLE_VALUE); 
+  
+  _wo.hEvent = CreateEvent(NULL, true, false, NULL);
+  assert(_wo.hEvent != INVALID_HANDLE_VALUE); 
+ }
+ virtual ~_asyn_com()
+ {
+  close();
+
+  if(_ro.hEvent != INVALID_HANDLE_VALUE)
+   CloseHandle(_ro.hEvent);
+
+  if(_wo.hEvent != INVALID_HANDLE_VALUE)
+   CloseHandle(_wo.hEvent);
+ }
+ //异步读
+ int read(char *buf, int buf_len, int time_wait = 20)
+ {
+  if(!is_open())
+   return 0;
+
+  buf[0] = '/0';
+
+  COMSTAT  stat;
+  DWORD error;
+
+  if(ClearCommError(_com_handle, &error, &stat) && error > 0) //清除错误
+  {
+   PurgeComm(_com_handle, PURGE_RXABORT | PURGE_RXCLEAR); /*清除输入缓冲区*/
+   return 0;
+  }
+
+  if(!stat.cbInQue)// 缓冲区无数据
+   return 0;
+
+  unsigned long r_len = 0;
+
+  buf_len = min((int)(buf_len - 1), (int)stat.cbInQue);
+
+  if(!ReadFile(_com_handle, buf, buf_len, &r_len, &_ro)) //2000 下 ReadFile 始终返回 True
+  {
+   if(GetLastError() == ERROR_IO_PENDING) // 结束异步I/O
+   {
+    //WaitForSingleObject(_ro.hEvent, time_wait); //等待20ms
+    if(!GetOverlappedResult(_com_handle, &_ro, &r_len, false))
+    {
+     if(GetLastError() != ERROR_IO_INCOMPLETE)//其他错误
+       r_len = 0;
+    }
+   }
+   else
+    r_len = 0;
+  }
+   
+  buf[r_len] = '/0';
+  return r_len;
+ }
+ //异步写
+ int write(char *buf, int buf_len)
+ {
+  if(!is_open())
+   return 0;
+  
+  DWORD    error;
+  if(ClearCommError(_com_handle, &error, NULL) && error > 0) //清除错误
+   PurgeComm(_com_handle, PURGE_TXABORT | PURGE_TXCLEAR); 
+
+  unsigned long w_len = 0, o_len = 0;
+  if(!WriteFile(_com_handle, buf, buf_len, &w_len, &_wo))
+   if(GetLastError() != ERROR_IO_PENDING)
+    w_len = 0;
+
+  return w_len;
+ }
+ //异步写
+ inline int write(char *buf)
+ {
+  assert(buf);
+  return write(buf, strlen(buf));
+ }
+ //异步写, 支持部分类型的流输出
+ template<typename T>
+ _asyn_com& operator << (T x)
+ {
+  strstream s;
+
+  s << x ;
+  write(s.str(), s.pcount());
+
+  return *this;
+ }
+};
+
+//当接受到数据送到窗口的消息
+#define ON_COM_RECEIVE WM_USER + 618  //  WPARAM 端口号
+
+class _thread_com : public _asyn_com
+{
+protected:
+ volatile HANDLE _thread_handle; //辅助线程
+ volatile HWND _notify_hwnd; // 通知窗口
+ volatile long _notify_num;//接受多少字节(>_notify_num)发送通知消息
+ volatile bool _run_flag; //线程运行循环标志
+ void (*_func)(int port);
+
+ OVERLAPPED _wait_o; //WaitCommEvent use
+
+ //线程收到消息自动调用, 如窗口句柄有效, 送出消息, 包含窗口编号
+ virtual void on_receive()
+ {
+  if(_notify_hwnd)
+   PostMessage(_notify_hwnd, ON_COM_RECEIVE, WPARAM(_port), LPARAM(0));
+  else
+  {
+   if(_func)
+    _func(_port);
+  }
+ }
+ //打开串口,同时打开监视线程
+ virtual bool open_port()
+ {
+  if(_asyn_com::open_port())
+  {
+   _run_flag = true; 
+   DWORD id;
+   _thread_handle = CreateThread(NULL, 0, com_thread, this, 0, &id); //辅助线程
+   assert(_thread_handle);
+   if(!_thread_handle)
+   {
+    CloseHandle(_com_handle);
+    _com_handle = INVALID_HANDLE_VALUE;
+   }
+   else
+    return true;
+  }
+  return false;
+ }
+
+public:
+ _thread_com()
+ {
+  _notify_num = 0;
+  _notify_hwnd = NULL;
+  _thread_handle = NULL;
+  _func = NULL;
+
+  memset(&_wait_o, 0, sizeof(_wait_o));
+  _wait_o.hEvent = CreateEvent(NULL, true, false, NULL);
+  assert(_wait_o.hEvent != INVALID_HANDLE_VALUE); 
+ }
+ ~_thread_com()
+ {
+  close();
+
+  if(_wait_o.hEvent != INVALID_HANDLE_VALUE)
+   CloseHandle(_wait_o.hEvent);
+ }
+ //设定发送通知, 接受字符最小值
+ void set_notify_num(int num)
+ {
+  _notify_num = num;
+ }
+ int get_notify_num()
+ {
+  return _notify_num;
+ }
+ //送消息的窗口句柄
+ inline void set_hwnd(HWND hWnd)
+ {
+  _notify_hwnd = hWnd;
+ }
+ inline HWND get_hwnd()
+ {
+  return _notify_hwnd;
+ }
+ inline void set_func(void (*f)(int))
+ {
+  _func = f;
+ }
+ //关闭线程及串口
+ virtual void close()
+ {
+  if(is_open())  
+  {
+   _run_flag = false;
+   SetCommMask(_com_handle, 0);
+   SetEvent(_wait_o.hEvent);
+
+   if(WaitForSingleObject(_thread_handle, 100) != WAIT_OBJECT_0)
+    TerminateThread(_thread_handle, 0);
+
+   CloseHandle(_com_handle);
+   CloseHandle(_thread_handle);
+
+   _thread_handle = NULL;
+   _com_handle = INVALID_HANDLE_VALUE;
+   ResetEvent(_wait_o.hEvent);
+  }
+ }
+ /*辅助线程控制*/
+ //获得线程句柄
+ HANDLE get_thread()
+ {
+  return _thread_handle;
+ }
+ //暂停监视线程
+ bool suspend()
+ {
+  return _thread_handle != NULL ? SuspendThread(_thread_handle) != 0xFFFFFFFF : false;
+ }
+ //恢复监视线程
+ bool resume()
+ {
+  return _thread_handle != NULL ? ResumeThread(_thread_handle) != 0xFFFFFFFF : false;
+ }
+ //重建监视线程
+ bool restart() 
+ {
+  if(_thread_handle) /*只有已有存在线程时*/
+  {
+   _run_flag = false;
+   SetCommMask(_com_handle, 0);
+   SetEvent(_wait_o.hEvent);
+
+   if(WaitForSingleObject(_thread_handle, 100) != WAIT_OBJECT_0)
+    TerminateThread(_thread_handle, 0);
+
+   CloseHandle(_thread_handle);
+
+   _run_flag = true;
+   _thread_handle = NULL;
+
+   DWORD id;
+   _thread_handle = CreateThread(NULL, 0, com_thread, this, 0, &id);
+   return (_thread_handle != NULL); //辅助线程
+  }
+  return false;
+ }
+
+private:
+ //监视线程
+ static DWORD WINAPI com_thread(LPVOID para)
+ {
+  _thread_com *pcom = (_thread_com *)para; 
+  
+
+        if(!SetCommMask(pcom->_com_handle, EV_RXCHAR | EV_ERR))
+   return 0;
+
+  COMSTAT  stat;
+  DWORD error;
+
+  for(DWORD length, mask = 0; pcom->_run_flag && pcom->is_open(); mask = 0)
+  {
+   if(!WaitCommEvent(pcom->_com_handle, &mask, &pcom->_wait_o))
+   {
+    if(GetLastError() == ERROR_IO_PENDING)
+    {
+     GetOverlappedResult(pcom->_com_handle, &pcom->_wait_o, &length, true);
+    }
+   }
+
+   if(mask & EV_ERR) // == EV_ERR
+    ClearCommError(pcom->_com_handle, &error, &stat);
+
+   if(mask & EV_RXCHAR) // == EV_RXCHAR
+   {
+    ClearCommError(pcom->_com_handle, &error, &stat);
+    if(stat.cbInQue > pcom->_notify_num)
+     pcom->on_receive();
+   }
+        }
+
+  return 0;
+ }
+ 
+};
+
+typedef _thread_com _com; //名称简化
+
+#endif //_COM_H_

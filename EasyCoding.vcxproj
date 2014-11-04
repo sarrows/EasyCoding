@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{93171239-DB30-46E6-8FCE-BC4B1C15CC92}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>EasyCoding</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <IncludePath>$(ProjectDir)include;$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;</IncludePath>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <IncludePath>$(ProjectDir)include;$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;</IncludePath>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>EC_EXPORT;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(LOG4CPP)\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>log4cpp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(LOG4CPP)\msvc10\log4cpp\$(Configuration)</AdditionalLibraryDirectories>
+    </Link>
+    <PostBuildEvent>
+      <Command>copy /y "$(LOG4CPP)\msvc10\log4cpp\$(Configuration)\log4cpp.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Updating log4cpp.dll</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>EC_EXPORT;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(LOG4CPP)\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>log4cpp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(LOG4CPP)\msvc10\log4cpp\$(Configuration)</AdditionalLibraryDirectories>
+    </Link>
+    <PostBuildEvent>
+      <Command>copy /y "$(LOG4CPP)\msvc10\log4cpp\$(Configuration)\log4cpp.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Updating log4cpp.dll</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="include\CnComm.h" />
+    <ClInclude Include="include\config_platform.h" />
+    <ClInclude Include="include\dilink_list.h" />
+    <ClInclude Include="include\dlg_base.h" />
+    <ClInclude Include="include\exception.h" />
+    <ClInclude Include="include\hash_fun.h" />
+    <ClInclude Include="include\hash_table.h" />
+    <ClInclude Include="include\listbase.h" />
+    <ClInclude Include="include\loop_list.h" />
+    <ClInclude Include="include\main_base_app.h" />
+    <ClInclude Include="include\main_base_wnd.h" />
+    <ClInclude Include="include\queue_adapter.h" />
+    <ClInclude Include="include\rect.h" />
+    <ClInclude Include="include\stream_buffer.h" />
+    <ClInclude Include="include\thread_pool.h" />
+    <ClInclude Include="include\tranicon_std.h" />
+    <ClInclude Include="include\utils.h" />
+    <ClInclude Include="include\xos.h" />
+    <ClInclude Include="ipc\event.h" />
+    <ClInclude Include="ipc\ipcobjbase.h" />
+    <ClInclude Include="ipc\mutex.h" />
+    <ClInclude Include="ipc\semaphore.h" />
+    <ClInclude Include="log\Logger.h" />
+    <ClInclude Include="type\any_type.h" />
+    <ClInclude Include="type\interval.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="base\dilink_list.cpp" />
+    <ClCompile Include="base\dlg_base.cpp" />
+    <ClCompile Include="base\main_base_app.cpp" />
+    <ClCompile Include="base\main_base_wnd.cpp" />
+    <ClCompile Include="base\thread_pool.cpp" />
+    <ClCompile Include="base\tranicon_std.cpp" />
+    <ClCompile Include="base\utils.cpp" />
+    <ClCompile Include="base\xos.cpp" />
+    <ClCompile Include="ipc\event.cpp" />
+    <ClCompile Include="ipc\ipcobjbase.cpp" />
+    <ClCompile Include="ipc\mutex.cpp" />
+    <ClCompile Include="ipc\semaphore.cpp" />
+    <ClCompile Include="log\Logger.cpp" />
+    <ClCompile Include="type\any_type.cpp" />
+    <ClCompile Include="type\interval.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="include\dilink_list.inl" />
+    <None Include="include\hash_table.inl" />
+    <None Include="include\loop_list.inl" />
+    <None Include="include\queue_adapter.inl" />
+    <None Include="include\stream_buffer.inl" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
